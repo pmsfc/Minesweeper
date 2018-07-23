@@ -1,0 +1,60 @@
+		
+(clear)
+
+(printout t "Loading minesweeper.jess" crlf)
+
+
+;; variavel global que vai recebero comando a ser executado pelo 
+;; netlogo
+
+(defglobal ?*comando* = 3)
+
+;; template para guardar as coordenadas do mundo
+;;
+(deftemplate mundo
+     (slot min-x)
+	 (slot max-x)
+	 (slot min-y)
+	 (slot max-y))
+
+	 
+;; template para guardar informacao sobre as celulas que foram
+;; descobertas no ultimo clique.
+(deftemplate MAIN::aberta 
+      (slot x)
+      (slot y)
+      (slot valor))
+
+;; template para guardar a celula seleccionada
+(deftemplate escolhe 
+      (slot x)
+      (slot y))
+
+
+
+(defmodule OUT)
+
+;;;
+;;;   quando se insere um facto (escolhe
+;;;   (ganha o focus) recolhe a celula escolhida e as
+;;;   bandeiras constroi o comando a executar no netlogo
+;;;   Apagas os factos com bandeiras e celula e limpa a pilha.
+
+
+(defrule output-decisao
+  (declare (auto-focus TRUE))
+  ?takeout <- (MAIN::escolhe (x ?x) (y ?y))
+  ?bs <- (MAIN::novas-bandeiras $?novas)
+  
+=>
+   (retract ?takeout ?bs)
+   (bind ?*x* (str-cat "clic" " " ?x " " ?y 
+                       " [" (implode$ $?novas) "]"))
+   (clear-focus-stack))
+
+
+(set-current-module MAIN)
+
+
+(printout t "THE-END of minesweeperX.jess" crlf)
+

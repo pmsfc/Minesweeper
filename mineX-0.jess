@@ -1,0 +1,474 @@
+(printout t "Carregando mineX0.jess" crlf)
+
+
+;;; Escolhe a celula 
+;;;
+
+(defmodule MINE)
+
+(deffunction randIntervalX (?min-x ?max-x)
+(bind ?var	(+ 0 (mod (random) (- (+ 1 1) 0))))
+(if (= ?var 0) then (bind ?x ?min-x) else (bind ?x ?max-x))
+)
+
+(deffunction randIntervalY (?min-y ?max-y)
+(bind ?var	(+ 0 (mod (random) (- (+ 1 1) 0))))
+(if (= ?var 0) then (bind ?y ?min-y) else (bind ?y ?max-y))
+)
+
+(deffunction randInterval (?min ?max)
+(+ ?min (mod (random) (- (+ 1 ?max) ?min))))
+
+(defglobal ?*count_open* = 0)
+  
+(deftemplate free
+	(slot x) 
+	(slot y)
+	(slot value) 
+)
+
+
+(deftemplate pointer
+	(slot x ) 
+	(slot y )
+)
+
+(deftemplate passed
+	(slot x ) 
+	(slot y )
+)
+
+(deftemplate open_touch
+	(slot pos_x)
+	(slot pos_y)
+	(slot count-touch)
+	(slot count-flags (default 0))
+	(multislot pos-xy-touch)
+)
+
+
+
+
+   
+(deffacts tag-escolhe
+   (escolhe-prox))
+   
+
+   
+; "Corner	59.54%	of best opening !"
+
+(defrule random-start-corner "Inicia uma posicao numa esquina random"
+	(not (MAIN::aberta))
+	?out <- (escolhe-prox)
+	(MAIN::mundo (min-x ?minx) (max-x ?maxx) (min-y ?miny) (max-y ?maxy))
+=>
+	(printout t "random-start-corner1" crlf)
+	(retract ?out)
+	(assert (escolhe-prox) (novas-bandeiras) 
+			(escolhe (x (randIntervalX ?minx ?maxx)) 
+					 (y (randIntervalY ?miny ?maxy))))
+	(assert (start-ver) (pointer (x ?minx) (y ?miny)))
+(return))
+
+
+
+(defrule random-start-corner2 "tenta mais uma vez esquina" ; falta verficacao
+	(MAIN::aberta)
+	?ret2<-(try-again-corner)
+	?out <- (escolhe-prox)
+	(MAIN::mundo (min-x ?minx) (max-x ?maxx) (min-y ?miny) (max-y ?maxy))
+=>
+	(printout t "random-start-corner2" crlf)
+	(retract ?out ?ret2)
+	(assert (escolhe-prox) (novas-bandeiras) 
+			(escolhe (x (randIntervalX ?minx ?maxx)) 
+					 (y (randIntervalY ?miny ?maxy))))
+	(assert (start))
+(return))
+
+
+
+(defrule count-abertas "conta abertas"
+	(MAIN::aberta)
+=>
+	(bind ?*count_open* (+ ?*count_open* 1))
+	;(printout t "Counter: "?*count_open* crlf)
+)
+
+(defrule start-or-not
+	(start-ver)
+=>
+	(if (eq ?*count_open* 1)then
+         (assert (try-again-corner))
+	else
+	(if (> ?*count_open* 0)then
+		(assert (start)))
+	)
+)
+
+
+
+(defrule clear_wrong_free "limpar free que ja estao abertas"
+	(declare (salience 99999))
+	(MAIN::aberta (x ?x) (y ?y))
+	?ret<-(free (x ?x) (y ?y) (value ?vfree))
+=>
+	(retract ?ret)
+)
+
+
+
+
+; "Descobrir Casa Livres apos opening"
+
+(defrule calc-free "assert casas livres"
+	(declare (salience 9999))
+	(mundo (min-x ?minx) (max-x ?maxx) (min-y ?miny) (max-y ?maxy))
+	(start)
+	?ret<-(pointer (x ?x) (y ?y))
+	(not (MAIN::aberta (x ?x) (y ?y) (valor ?)))  
+	(test (<= ?y ?maxy))
+=>
+	(assert (free (x ?x) (y ?y) (value 0) ) )
+	(retract ?ret)	
+	(if (eq ?x ?maxx) then                            ; "pointer increment"
+		(assert (pointer (x ?minx)(y (+ ?y 1)) ))
+	 else
+		(assert (pointer (x (+ ?x 1))(y ?y) ))
+	)
+)
+
+(defrule calc-free-augment "quando casa ocupada avança pointer"
+	(declare (salience 9999))
+	(mundo (min-x ?minx) (max-x ?maxx) (min-y ?miny) (max-y ?maxy))
+	?ret<-(pointer (x ?x) (y ?y))
+	(MAIN::aberta (x ?x) (y ?y))
+=>
+	(retract ?ret)	
+	(if (eq ?x ?maxx) then                            ; "pointer increment"
+		(assert (pointer (x ?minx)(y (+ ?y 1)) ))
+	 else
+		(assert (pointer (x (+ ?x 1))(y ?y) ))
+	)
+)
+
+
+
+(defrule count-retract
+	(declare (salience 9998))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?l < ?xt , ?yt > $?r) )
+	(MAIN::aberta (x ?xt) (y ?yt))
+=>
+	;(printout t "ret " ?xt " " ?yt crlf)         
+	(bind ?all (explode$ (str-cat (implode$ $?l) (implode$ $?r))))
+	(modify ?mod (count-touch (- ?counter 1)) (pos-xy-touch ?all))
+)
+
+
+; "Patterns of touching equal to value !"
+
+
+(defrule init_calc
+	(declare (salience 990))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(test (> ?v 0))
+	(not (secondplay))
+	(not(free (x ?x) (y ?y) (value ?vfree)))
+=>
+	(assert (open_touch (pos_x ?x) (pos_y ?y) (count-touch 0) (pos-xy-touch) ) )
+)
+
+
+(defrule give-value-free-UP
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x) (y ?y2) (value ?vfree))
+	(test (= ?y2 (+ ?y 1)))
+	(not (passed_up ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) )    
+=>	
+	(assert (passed_up ?x ?y)) ;define no-loop
+	(modify ?mod (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x , ?y2 >) )
+)
+
+
+
+
+
+(defrule give-value-free-down
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x) (y ?y2) (value ?vfree))
+	(test (= ?y2 (- ?y 1)))
+	(not (passed_down ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) )    
+=>	
+	(assert (passed_down ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x , ?y2 >))
+)
+
+
+
+
+(defrule give-value-free-right
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x2) (y ?y) (value ?vfree))
+	(test (= ?x2 (+ ?x 1)))
+	(not (passed_right ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) )   
+=>	
+	(assert (passed_right ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x2 , ?y >))
+)
+
+
+
+(defrule give-value-free-left
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x2) (y ?y) (value ?vfree))
+	(test (= ?x2 (- ?x 1)))
+	(not (passed_left ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) )   
+=>	
+	(assert (passed_left ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x2 , ?y >))	
+)
+
+
+
+(defrule give-value-free-leftUP
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x2) (y ?y2) (value ?vfree))
+	(test (= ?x2 (- ?x 1)))
+	(test (= ?y2 (+ ?y 1)))
+	(not (passed_upL ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) )  
+=>	
+	(assert (passed_upL ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x2 , ?y2 >))
+)
+
+
+
+(defrule give-value-free-rightUP
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x2) (y ?y2) (value ?vfree))
+	(test (= ?x2 (+ ?x 1)))
+	(test (= ?y2 (+ ?y 1)))
+	(not (passed_upR ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) ) 
+=>	
+	(assert (passed_upR ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x2 , ?y2 >))
+)
+
+
+
+(defrule give-value-free-leftDOWN
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x2) (y ?y2) (value ?vfree))
+	(test (= ?x2 (- ?x 1)))
+	(test (= ?y2 (- ?y 1)))
+	(not (passed_downL ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) ) 
+=>	
+	
+	(assert (passed_downL ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x2 , ?y2 >))
+)
+
+
+
+(defrule give-value-free-rightDOWN
+	(declare (salience 985))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(free (x ?x2) (y ?y2) (value ?vfree))
+	(test (= ?x2 (+ ?x 1)))
+	(test (= ?y2 (- ?y 1)))
+	(not (passed_downR ?x ?y))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (pos-xy-touch $?all) ) 
+=>	
+	(assert (passed_downR ?x ?y))
+	(modify ?mod  (count-touch (+ ?counter 1)) (pos-xy-touch $?all < ?x2 , ?y2 >))
+)
+
+
+
+	
+	
+	
+(defrule set_bandeira_igual "when value number equals number of free cases nearby" ; 
+	(declare (salience 99))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (count-flags ?fcounter) (pos-xy-touch $?l < ?xt , ?yt > $?r) )
+	(test (= ?v ?counter))
+	(not (already_bandeira ?xt ?yt))
+	(not (MAIN::aberta (x ?xt) (y ?yt) (valor ?v2)))
+=>
+	(assert (already_bandeira ?xt ?yt))
+	;(printout t "open-touch " ?x " " ?y "    FLAG IN v1! x  "?xt " y " ?yt crlf)
+)
+
+	
+
+(defrule set_bandeiras_main "check"
+	(declare (salience 89))
+	(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (count-flags ?fcounter) (pos-xy-touch $?l < ?xt , ?yt > $?r) )
+	(already_bandeira ?xt ?yt)
+	(not (already_bandeira_main ?xt ?yt))
+	?ret<-(MAIN::novas-bandeiras $?allb)
+=>
+	(assert (already_bandeira_main ?xt ?yt))
+	(retract ?ret)
+	(assert (MAIN::novas-bandeiras ?allb ?xt ?yt))
+)
+
+
+(defrule set_bandeiras_main_init "check"
+	(declare (salience 89))
+	(open_touch (pos_x ?x) (pos_y ?y) (pos-xy-touch $?l < ?xt , ?yt > $?r) )
+	(not(MAIN::novas-bandeiras $?allb))
+	(already_bandeira ?xt ?yt)
+	(not (already_bandeira_main ?xt ?yt))
+=>
+	(assert (already_bandeira_main ?xt ?yt))
+	(assert (MAIN::novas-bandeiras ?xt ?yt))
+)
+
+
+(defrule count-flags-touch
+	(declare (salience 79) (no-loop TRUE))
+	?mod<-(open_touch (pos_x ?x) (pos_y ?y) (count-flags ?counter) (pos-xy-touch $?l < ?xt , ?yt > $?r) )
+	(already_bandeira ?xt ?yt)
+	(not (already-count-bandeira ?x ?y ?xt ?yt))
+=>
+	(assert (already-count-bandeira ?x ?y ?xt ?yt))
+	(modify ?mod  (count-flags (+ ?counter 1)))
+)
+
+
+
+
+
+
+(defrule sem_perigo "def casas sem perigo quando ja tem bombas e so resta safe place's"
+	(declare (salience 69))
+	(MAIN::aberta (x ?x) (y ?y) (valor ?v))
+	(open_touch (pos_x ?x) (pos_y ?y) (count-touch ?counter) (count-flags ?flags) (pos-xy-touch $?l < ?xt , ?yt > $?r) )
+	(test (> ?counter ?flags))
+	(test (= ?v ?flags))
+	(not(already_bandeira ?xt ?yt))
+	(not (free_to_play ?xt ?yt))
+=>
+	;(printout t "Safe Play orig " ?x " " ?y " POS x-y" ?xt " " ?yt crlf)
+	(assert (free_to_play ?xt ?yt))
+)
+
+
+
+
+
+
+
+: "LETS PLAY !"
+
+(defrule play_last
+	(declare (salience 5))
+	(free_to_play ?xt ?yt)
+	(not (MAIN::aberta (x ?xt) (y ?yt) (valor ?v)))
+	(MAIN::novas-bandeiras $?b)
+	(not(already_bandeira ?xt ?yt))
+	(not (already_played ?xt ?yt))
+=>	
+	(assert (already_played ?xt ?yt))
+	(assert (escolhe-prox) (escolhe (x ?xt) (y ?yt)))
+	(return)
+)
+
+(defrule play_last_noflags
+	(declare (salience 5))
+	(free_to_play ?xt ?yt)
+	(not (MAIN::aberta (x ?xt) (y ?yt) (valor ?v)))
+	(not(MAIN::novas-bandeiras $?b))
+	(not(already_bandeira ?xt ?yt))
+	(not (already_played ?xt ?yt))
+=>
+	(assert (already_played ?xt ?yt))
+	(assert (escolhe-prox) (novas-bandeiras) (escolhe (x ?xt) (y ?yt)))
+	(return)
+)
+
+
+
+(defrule play_last_random_best_init 
+	(declare (salience 4))
+	(not (random_play_in ? ?))
+=>	
+	(assert (calc-random-play))
+)
+
+
+(defrule play_last_random_calc
+	(declare (salience 4))
+	(mundo (min-x ?minx) (max-x ?maxx) (min-y ?miny) (max-y ?maxy))
+	?ret<-(calc-random-play)
+=>
+	(retract ?ret)
+	(assert (random_play_in (randInterval ?minx ?maxx) (randInterval ?miny ?maxy)))
+)
+
+(defrule play_last_random_verify_is_free
+	(declare (salience 3))
+	?ret<-(random_play_in ?xt ?yt)
+	(not (free (x ?xt) (y ?yt) (value ?vfree)))
+	(start)
+=>
+	(retract ?ret)
+)
+
+(defrule play_last_random_verify_is_aberta
+	(declare (salience 3))
+	?ret<-(random_play_in ?xt ?yt)
+	(MAIN::aberta (x ?xt) (y ?yt) (valor ?v))
+	(start)
+=>
+	(retract ?ret)
+)
+
+(defrule play_last_random_verify_is_bomba
+	(declare (salience 3))
+	?ret<-(random_play_in ?xt ?yt)
+	(already_bandeira ?xt ?yt)
+	(start)
+=>
+	(retract ?ret)
+)
+
+
+
+(defrule play_last_random_best 
+	(declare (salience 2))
+	(random_play_in ?xt ?yt)
+	(free (x ?xt) (y ?yt) (value ?vfree))
+	(not (MAIN::aberta (x ?xt) (y ?yt) (valor ?v)))
+	(not(already_bandeira ?xt ?yt))
+	(not (already_played ?xt ?yt))
+=>
+	(printout t "Let me check my luck !" crlf)
+	(assert (already_played ?xt ?yt))
+	(assert (escolhe-prox) (novas-bandeiras) (escolhe (x ?xt) (y ?yt)))
+	(return)
+)
+
+
+
+
+
+
+
+(printout t "O FIM de mineX0.jess" crlf)
